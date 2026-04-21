@@ -1,1 +1,2 @@
-#Empty - nothing needed here
+namespace: database
+appname: database-cronjobs
