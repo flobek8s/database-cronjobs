@@ -25,51 +25,55 @@ spec:
               dnf install -y mariadb105 gzip
               
               BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
-              BACKUP_FILE="/backup/mysql_backup_${BACKUP_DATE}.sql.gz"
-              S3_PATH="s3://${S3_BUCKET}/mysql-backups/mysql_backup_${BACKUP_DATE}.sql.gz"
+              DATABASES="mylivetemps ip_tracker"
               
               echo "Starting backup at $(date)"
-              
-              # Perform the backup using mysqldump
-              mysqldump -h mysql \
-                -u ${MYSQL_BACKUP_USER} \
-                -p${MYSQL_BACKUP_PASSWORD} \
-                --single-transaction \
-                --quick \
-                --lock-tables=false \
-                --routines \
-                --triggers \
-                --events \
-                --databases mylivetemps \
-                | gzip > ${BACKUP_FILE}
-              
-              echo "Backup completed: ${BACKUP_FILE}"
-              echo "Backup size: $(du -h ${BACKUP_FILE})"
-              
-              # Upload to iDrive S3
-              echo "Uploading to iDrive S3..."
-              aws s3 cp ${BACKUP_FILE} ${S3_PATH} \
-                --endpoint-url ${S3_ENDPOINT}
-              
-              if [ $? -eq 0 ]; then
-                echo "Successfully uploaded to S3: ${S3_PATH}"
-              else
-                echo "ERROR: Failed to upload to S3"
-                exit 1
-              fi
+
+              for DB in ${DATABASES}; do
+                BACKUP_FILE="/backup/${DB}_backup_${BACKUP_DATE}.sql.gz"
+                S3_PATH="s3://${S3_BUCKET}/mysql-backups/${DB}_backup_${BACKUP_DATE}.sql.gz"
+
+                echo "Backing up ${DB}..."
+                mysqldump -h mysql \
+                  -u ${MYSQL_BACKUP_USER} \
+                  -p${MYSQL_BACKUP_PASSWORD} \
+                  --single-transaction \
+                  --quick \
+                  --lock-tables=false \
+                  --routines \
+                  --triggers \
+                  --events \
+                  --databases ${DB} \
+                  | gzip > ${BACKUP_FILE}
+
+                echo "Backup completed: ${BACKUP_FILE}"
+                echo "Backup size: $(du -h ${BACKUP_FILE})"
+
+                # Upload to iDrive S3
+                echo "Uploading ${DB} backup to iDrive S3..."
+                aws s3 cp ${BACKUP_FILE} ${S3_PATH} \
+                  --endpoint-url ${S3_ENDPOINT}
+
+                if [ $? -eq 0 ]; then
+                  echo "Successfully uploaded to S3: ${S3_PATH}"
+                else
+                  echo "ERROR: Failed to upload ${DB} backup to S3"
+                  exit 1
+                fi
+              done
               
               # Optional: Delete local backups older than 7 days
               echo "Cleaning up old local backups..."
-              find /backup -name "mysql_backup_*.sql.gz" -mtime +7 -delete
+              find /backup -name "*_backup_*.sql.gz" -mtime +7 -delete
               
               # Optional: Delete S3 backups older than 30 days
               echo "Cleaning up old S3 backups..."
               CUTOFF_DATE=$(date -d '30 days ago' +%Y%m%d)
               aws s3 ls s3://${S3_BUCKET}/mysql-backups/ --endpoint-url ${S3_ENDPOINT} | \
                 awk '{print $4}' | \
-                grep "mysql_backup_" | \
+                grep "_backup_" | \
                 while read file; do
-                  FILE_DATE=$(echo $file | sed 's/mysql_backup_\([0-9]\{8\}\).*/\1/')
+                  FILE_DATE=$(echo $file | sed 's/.*_backup_\([0-9]\{8\}\).*/\1/')
                   if [ "$FILE_DATE" -lt "$CUTOFF_DATE" ]; then
                     echo "Deleting old backup: $file"
                     aws s3 rm s3://${S3_BUCKET}/mysql-backups/$file --endpoint-url ${S3_ENDPOINT}
