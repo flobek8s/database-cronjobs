@@ -19,7 +19,7 @@ spec:
             - -c
             - |
               set -e
-              
+              curl -m 5 --retry 5 "${POSTGRES_HEALTHCHECKS_URL}/start"
               # Install AWS CLI
               apt-get update && apt-get install -y curl unzip gzip
               curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -72,6 +72,8 @@ spec:
                   fi
                 done
               
+              curl -m 10 --retry 5 "${POSTGRES_HEALTHCHECKS_URL}"
+
               echo "Backup process completed at $(date)"
             env:
             - name: POSTGRES_BACKUP_USER
